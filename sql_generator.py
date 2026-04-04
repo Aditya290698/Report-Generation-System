@@ -50,7 +50,6 @@ ABSOLUTE RULES:
 7. If a question cannot be answered from the schema: CANNOT_GENERATE: <reason>
 
 LIMIT RULES:
-- Raw row queries (no aggregation): LIMIT 100
 - GROUP BY queries: NO LIMIT
 - Single aggregate (SUM/COUNT/AVG, no GROUP BY): NO LIMIT
 - Top N queries ("top 10"): LIMIT exactly what user asked
