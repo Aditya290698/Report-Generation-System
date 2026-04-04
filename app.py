@@ -1,3 +1,26 @@
+"""
+api.py
+------
+FastAPI application for the POS LLM Reporting System.
+
+Exposes the full two-pass LLM pipeline (SQL generation + report writing)
+as a REST API. The web UI and any other client calls this API — they
+never touch the database or LLM directly.
+
+Endpoints:
+    POST /report         → Run a question through the full pipeline
+    GET  /report/pdf     → Download the last generated report as PDF
+    GET  /health         → Check API, DB, and OpenAI connectivity
+    GET  /tables         → List the reporting tables in scope
+    GET  /docs           → Auto-generated Swagger UI (built into FastAPI)
+
+Run with:
+    uvicorn app:app --reload --port 8000
+
+Then open:
+    http://localhost:8000/docs   ← Interactive API playground
+"""
+
 import os
 import re
 import logging
@@ -56,19 +79,28 @@ async def lifespan(app: FastAPI):
     """
     Startup: connect to DB and build schema context.
     Shutdown: close DB connection cleanly.
+
+    IMPORTANT: We do NOT raise on DB failure — if we crash at startup
+    the health check endpoint never responds and Railway marks it unhealthy.
+    Instead we log the error and let the app start in degraded mode.
+    The /health endpoint will report the actual status.
     """
     logger.info("Starting POS Reporting API...")
 
     try:
         state.conn, state.schema = load_schema()
-        logger.info("Database connected and schema loaded.")
+        logger.info("Database connected and schema loaded successfully.")
     except Exception as e:
-        logger.error("Startup failed — could not load schema: %s", e)
-        raise   # Crash early rather than serve broken endpoints
+        # Log but do NOT raise — let the server start so /health can respond
+        logger.error("Could not connect to database at startup: %s", e)
+        logger.warning("Server starting in degraded mode — DB unavailable.")
+        state.conn   = None
+        state.schema = ""
 
     # Create PDF output directory
     Path("reports").mkdir(exist_ok=True)
 
+    logger.info("POS Reporting API is ready.")
     yield   # Server is running — handle requests
 
     # Shutdown
@@ -451,6 +483,15 @@ async def health_check():
     except Exception as e:
         db_status = f"error: {str(e)[:60]}"
         logger.error("Health check — DB error: %s", e)
+        # Try to reconnect once more in case it was a transient failure
+        try:
+            state.conn, state.schema = load_schema()
+            with state.conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            db_status = "connected"
+            logger.info("Health check — DB reconnected successfully.")
+        except Exception as e2:
+            db_status = f"error: {str(e2)[:60]}"
 
     # ── Check OpenAI key ──────────────────────────────────────────────────────
     if os.getenv("OPENAI_API_KEY"):
