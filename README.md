@@ -245,25 +245,6 @@ curl -u admin:admin \
   https://web-production-a461.up.railway.app/report/pdf/3f8a2c1d-... \
   --output report.pdf
 ```
-
----
-
-### `POST /login`
-
-Verify credentials without generating a report.
-
-**Auth required:** Yes
-
-**Response:**
-
-```json
-{
-  "status": "authenticated",
-  "username": "admin",
-  "message": "Login successful."
-}
-```
-
 ---
 
 ### `GET /health`
