@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>POS Intelligence — Report System</title>
+<title>LLM Based Report Generation</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
@@ -524,7 +524,131 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20%      { transform: translateX(-8px); }
+    40%      { transform: translateX(8px); }
+    60%      { transform: translateX(-6px); }
+    80%      { transform: translateX(6px); }
+  }
+
+  .shake { animation: shake 0.4s ease both; }
+
   /* ── Responsive ─────────────────────────────────────────────── */
+  /* ── Category tabs ──────────────────────────────────────────── */
+  .category-section { margin-bottom: 40px; }
+
+  .category-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 12px;
+  }
+
+  .category-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .cat-tab {
+    padding: 8px 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .cat-tab:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .cat-tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .query-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .query-chip {
+    padding: 8px 16px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+  }
+
+  .query-chip:hover {
+    border-color: var(--accent);
+    color: var(--text);
+    background: rgba(59,127,255,0.06);
+  }
+
+  /* ── SQL panel ───────────────────────────────────────────────── */
+  .sql-panel {
+    margin-top: 16px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .sql-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--surface);
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--muted);
+    user-select: none;
+  }
+
+  .sql-header:hover { color: var(--text); }
+
+  .sql-header .sql-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    background: rgba(59,127,255,0.15);
+    color: var(--accent);
+    border-radius: 4px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+  }
+
+  .sql-body {
+    display: none;
+    padding: 16px;
+    background: #0d1117;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: #a0c4ff;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .sql-body.open { display: block; }
+
   @media (max-width: 640px) {
     .metrics-row, .insights-grid { grid-template-columns: 1fr; }
     .ask-box { flex-direction: column; }
@@ -532,6 +656,7 @@
     .main { padding: 24px 16px; }
     .ask-heading { font-size: 26px; }
     .report-header { flex-direction: column; }
+    .category-tabs { gap: 6px; }
   }
 </style>
 </head>
@@ -540,8 +665,8 @@
 <!-- ── LOGIN PAGE ──────────────────────────────────────────────────────────── -->
 <div id="login-page">
   <div class="login-box">
-    <div class="login-logo">POS<span>.</span>Intelligence</div>
-    <div class="login-sub">Sign in to access your reporting dashboard</div>
+    <div class="login-logo">LLM<span>.</span>Reports</div>
+    <div class="login-sub">AI-powered reporting for sales, products, orders &amp; customers</div>
 
     <div class="field">
       <label>Username</label>
@@ -564,7 +689,7 @@
 <div id="app-page">
 
   <div class="topbar">
-    <div class="topbar-brand">POS<span>.</span>Intelligence</div>
+    <div class="topbar-brand">LLM<span>.</span>Reports</div>
     <div class="topbar-right">
       <div class="user-pill">
         <div class="user-dot"></div>
@@ -577,8 +702,8 @@
   <div class="main">
 
     <!-- Ask section -->
-    <div class="ask-heading">Ask anything about<br>your <em>sales data.</em></div>
-    <div class="ask-sub">Type a question in plain English — the system generates SQL, runs it, and writes the report.</div>
+    <div class="ask-heading">Ask anything about<br><em>sales, products, orders &amp; customers.</em></div>
+    <div class="ask-sub">Type a question in plain English — the system generates SQL, runs it, and writes your report automatically.</div>
 
     <div class="ask-box">
       <input
@@ -594,13 +719,16 @@
       </button>
     </div>
 
-    <div class="suggestions">
-      <div class="suggestion-chip" onclick="ask('How many products are in each category?')">Products by category</div>
-      <div class="suggestion-chip" onclick="ask('What is the total revenue from all mx51 transactions?')">Total mx51 revenue</div>
-      <div class="suggestion-chip" onclick="ask('How many customers have account payment enabled?')">Account customers</div>
-      <div class="suggestion-chip" onclick="ask('Show monthly revenue from mx51 transactions')">Monthly revenue</div>
-      <div class="suggestion-chip" onclick="ask('What are the top 10 most expensive products by cost price?')">Top expensive products</div>
-      <div class="suggestion-chip" onclick="ask('How many completed Square checkout transactions are there?')">Square checkouts</div>
+    <!-- Category tabs + sample queries -->
+    <div class="category-section">
+      <div class="category-label">Browse sample queries</div>
+      <div class="category-tabs">
+        <button class="cat-tab active" onclick="selectCategory('sales')">Sales</button>
+        <button class="cat-tab" onclick="selectCategory('products')">Products</button>
+        <button class="cat-tab" onclick="selectCategory('orders')">Orders</button>
+        <button class="cat-tab" onclick="selectCategory('customers')">Customers</button>
+      </div>
+      <div class="query-chips" id="query-chips"></div>
     </div>
 
     <!-- Loading -->
@@ -667,6 +795,15 @@
         <div class="narrative-text" id="report-narrative"></div>
       </div>
 
+      <!-- SQL query panel (collapsible) -->
+      <div class="sql-panel" id="sql-panel">
+        <div class="sql-header" onclick="toggleSql()">
+          <span>View generated SQL query</span>
+          <span class="sql-badge">SQL</span>
+        </div>
+        <div class="sql-body" id="sql-body"></div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -677,6 +814,65 @@ const API = 'https://web-production-a461.up.railway.app';
 let authHeader = '';
 let currentChart = null;
 let currentReportId = null;
+
+// ── Sample queries by category ──────────────────────────────────────────────
+const SAMPLE_QUERIES = {
+  sales: [
+    'What is the total revenue from all mx51 transactions?',
+    'Show monthly revenue from mx51 transactions',
+    'How many completed Square checkout transactions are there?',
+    'What is the total tip amount collected from mx51 transactions?',
+    'Show total surcharge amount from mx51 transactions',
+    'What is the total revenue from Square checkouts this year?',
+  ],
+  products: [
+    'How many products are in each category?',
+    'What are the top 10 most expensive products by cost price?',
+    'How many active vs inactive products are there?',
+    'Which products have low stock below 10 units?',
+    'How many products are in each sub category?',
+    'Show all product categories and their product count',
+  ],
+  orders: [
+    'What order types are configured in the system?',
+    'What order statuses are available?',
+    'How many order types do we have?',
+    'Show all available order statuses',
+    'What types of channels are orders placed through?',
+  ],
+  customers: [
+    'How many customers do we have?',
+    'Show me customers grouped by state',
+    'How many customers have account payment enabled?',
+    'Which customers have an outstanding balance?',
+    'Show customers grouped by discount type',
+    'How many customer groups exist?',
+  ],
+};
+
+// ── Category selection ──────────────────────────────────────────────────────
+function selectCategory(cat) {
+  // Update tab styles
+  document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+
+  // Render query chips
+  const chips = document.getElementById('query-chips');
+  chips.innerHTML = '';
+  (SAMPLE_QUERIES[cat] || []).forEach(q => {
+    const chip = document.createElement('button');
+    chip.className = 'query-chip';
+    chip.textContent = q;
+    chip.onclick = () => ask(q);
+    chips.appendChild(chip);
+  });
+}
+
+// ── SQL toggle ──────────────────────────────────────────────────────────────
+function toggleSql() {
+  const body = document.getElementById('sql-body');
+  body.classList.toggle('open');
+}
 
 // ── Auth helpers ────────────────────────────────────────────────────────────
 function makeBasicAuth(user, pass) {
@@ -759,6 +955,17 @@ function showLoginError(msg) {
   const err = document.getElementById('login-error');
   err.textContent = msg;
   err.style.display = 'block';
+
+  // Clear the password field so user can try again
+  document.getElementById('password').value = '';
+  document.getElementById('password').focus();
+
+  // Shake the login box
+  const box = document.querySelector('.login-box');
+  box.classList.remove('shake');
+  // Force reflow so animation restarts if called multiple times
+  void box.offsetWidth;
+  box.classList.add('shake');
 }
 
 // ── Logout ──────────────────────────────────────────────────────────────────
@@ -876,6 +1083,11 @@ function renderReport(data) {
     }
   });
 
+  // SQL panel — show the query but collapsed by default
+  const sqlBody = document.getElementById('sql-body');
+  sqlBody.textContent = data.sql || '';
+  sqlBody.classList.remove('open'); // collapsed by default
+
   // PDF button
   if (data.pdf_url) {
     const pdfBtn = document.getElementById('pdf-btn');
@@ -990,7 +1202,7 @@ async function downloadPdf(url, filename) {
     a.click();
     URL.revokeObjectURL(a.href);
   } catch (e) {
-    alert('PDF download failed. Please try again.');
+    showError('PDF download failed. Please try again.');
   }
 }
 
@@ -1007,6 +1219,8 @@ function resetReport() {
   document.getElementById('chart-card').style.display    = 'none';
   document.getElementById('insights-grid').innerHTML     = '';
   document.getElementById('pdf-btn').classList.add('hidden');
+  document.getElementById('sql-body').classList.remove('open');
+  document.getElementById('sql-body').textContent = '';
   if (currentChart) { currentChart.destroy(); currentChart = null; }
   currentReportId = null;
 }
@@ -1031,6 +1245,18 @@ document.addEventListener('keydown', e => {
 
 // ── Init — check for existing session ──────────────────────────────────────
 (function init() {
+  // Load default category chips
+  const defaultChips = document.getElementById('query-chips');
+  defaultChips.innerHTML = '';
+  SAMPLE_QUERIES['sales'].forEach(q => {
+    const chip = document.createElement('button');
+    chip.className = 'query-chip';
+    chip.textContent = q;
+    chip.onclick = () => ask(q);
+    defaultChips.appendChild(chip);
+  });
+
+  // Check session
   const user = loadSession();
   if (user) {
     showApp(user);
