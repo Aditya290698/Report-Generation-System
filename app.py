@@ -30,15 +30,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import secrets
+import base64
 
 from schema_loader    import load_schema, REPORTING_TABLES
 from sql_generator    import generate_sql_with_retry, SQLValidationError
@@ -74,39 +74,50 @@ state = AppState()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 1b — Authentication
-# Simple HTTP Basic Auth. Credentials are read from environment variables
-# so they can be changed without touching code.
-# In production set APP_USERNAME and APP_PASSWORD in Railway variables.
+# Manual Basic Auth parsing — we deliberately do NOT use FastAPI's HTTPBasic
+# security scheme because that sends WWW-Authenticate: Basic in the response
+# header, which causes browsers to show their native login popup dialog.
+# Instead we parse the Authorization header ourselves and return a plain 401
+# JSON response that our custom login UI handles gracefully.
 # ─────────────────────────────────────────────────────────────────────────────
 
-security = HTTPBasic()
-
-def verify_credentials(credentials: HTTPBasicCredentials = None):
+def verify_credentials(request: Request):
     """
-    Verifies username and password against environment variables.
-    Uses secrets.compare_digest to prevent timing attacks — comparing
-    strings character by character leaks information about how many
-    characters matched. compare_digest always takes the same time.
+    Manually parses the Authorization: Basic header and verifies credentials
+    against APP_USERNAME and APP_PASSWORD environment variables.
+
+    Returns plain 401 JSON (no WWW-Authenticate header) so the browser
+    never shows its native HTTP Basic Auth popup dialog.
 
     Raises:
         HTTPException 401: If credentials are missing or wrong.
     """
     expected_user = os.getenv("APP_USERNAME", "admin")
-    expected_pass = os.getenv("APP_PASSWORD", "pos2024")
+    expected_pass = os.getenv("APP_PASSWORD", "admin")
 
-    if credentials is None:
+    auth_header = request.headers.get("Authorization", "")
+
+    if not auth_header.startswith("Basic "):
         raise HTTPException(
             status_code=401,
             detail="Authentication required.",
-            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    try:
+        decoded    = base64.b64decode(auth_header[6:]).decode("utf-8")
+        username, password = decoded.split(":", 1)
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header format.",
         )
 
     user_ok = secrets.compare_digest(
-        credentials.username.encode("utf-8"),
+        username.encode("utf-8"),
         expected_user.encode("utf-8"),
     )
     pass_ok = secrets.compare_digest(
-        credentials.password.encode("utf-8"),
+        password.encode("utf-8"),
         expected_pass.encode("utf-8"),
     )
 
@@ -114,10 +125,9 @@ def verify_credentials(credentials: HTTPBasicCredentials = None):
         raise HTTPException(
             status_code=401,
             detail="Invalid username or password.",
-            headers={"WWW-Authenticate": "Basic"},
         )
 
-    return credentials.username
+    return username
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -349,9 +359,9 @@ def build_response(
 )
 async def create_report(
     request: ReportRequest,
-    credentials: HTTPBasicCredentials = Depends(security),
+    http_request: Request,
 ):
-    verify_credentials(credentials)
+    verify_credentials(http_request)
     """
     The main endpoint. Full pipeline:
 
@@ -467,9 +477,9 @@ async def create_report(
 async def download_pdf(
     report_id: str,
     background_tasks: BackgroundTasks,
-    credentials: HTTPBasicCredentials = Depends(security),
+    http_request: Request,
 ):
-    verify_credentials(credentials)
+    verify_credentials(http_request)
     """
     Downloads the PDF for a previously generated report.
 
@@ -604,13 +614,13 @@ async def list_tables():
 
 # ── POST /login ──────────────────────────────────────────────────────────────
 @app.post("/login", summary="Verify credentials", tags=["Auth"])
-async def login(credentials: HTTPBasicCredentials = Depends(security)):
+async def login(http_request: Request):
     """
     Verifies username and password. Returns user info on success.
     The web UI calls this on the login form submit to confirm credentials
     before showing the main dashboard.
     """
-    username = verify_credentials(credentials)
+    username = verify_credentials(http_request)
     return {
         "status":   "authenticated",
         "username": username,

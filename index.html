@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LLM Based Report Generation</title>
+<title>LLM Reporting — POS Development Database</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
@@ -665,7 +665,7 @@
 <!-- ── LOGIN PAGE ──────────────────────────────────────────────────────────── -->
 <div id="login-page">
   <div class="login-box">
-    <div class="login-logo">LLM<span>.</span>Reports</div>
+    <div class="login-logo" style="font-size:22px;line-height:1.3">LLM Reporting<br><span style="font-size:13px;font-weight:300;color:var(--muted);font-family:var(--sans)">POS Development Database</span></div>
     <div class="login-sub">AI-powered reporting for sales, products, orders &amp; customers</div>
 
     <div class="field">
@@ -689,7 +689,7 @@
 <div id="app-page">
 
   <div class="topbar">
-    <div class="topbar-brand">LLM<span>.</span>Reports</div>
+    <div class="topbar-brand" style="font-size:17px">LLM Reporting <span style="font-size:12px;font-weight:300;color:var(--muted);font-family:var(--sans)">— POS Development Database</span></div>
     <div class="topbar-right">
       <div class="user-pill">
         <div class="user-dot"></div>
@@ -702,7 +702,7 @@
   <div class="main">
 
     <!-- Ask section -->
-    <div class="ask-heading">Ask anything about<br><em>sales, products, orders &amp; customers.</em></div>
+    <div class="ask-heading">AI-powered reporting on<br><em>sales, products, orders &amp; customers.</em></div>
     <div class="ask-sub">Type a question in plain English — the system generates SQL, runs it, and writes your report automatically.</div>
 
     <div class="ask-box">
@@ -818,35 +818,79 @@ let currentReportId = null;
 // ── Sample queries by category ──────────────────────────────────────────────
 const SAMPLE_QUERIES = {
   sales: [
+    // Revenue totals
     'What is the total revenue from all mx51 transactions?',
+    'What is the total revenue from all completed Square checkouts?',
+    // Date range
+    'What is the total mx51 revenue from January 2026 to March 2026?',
+    'Show total Square checkout revenue for the last 30 days',
+    // Daily / weekly / monthly
+    'Show daily revenue from mx51 transactions for the last 14 days',
+    'Show weekly revenue from mx51 transactions',
     'Show monthly revenue from mx51 transactions',
-    'How many completed Square checkout transactions are there?',
+    'Show monthly revenue from Square checkouts',
+    // Tips and surcharges
     'What is the total tip amount collected from mx51 transactions?',
-    'Show total surcharge amount from mx51 transactions',
-    'What is the total revenue from Square checkouts this year?',
+    'What is the total surcharge amount from mx51 transactions?',
+    // Refunds
+    'What is the total refund amount from mx51 transactions?',
+    // Averages
+    'What is the average transaction value from mx51 transactions?',
+    'What is the average Square checkout amount?',
+    // Counts
+    'How many approved mx51 transactions are there in total?',
+    'How many completed Square checkout transactions are there?',
   ],
   products: [
+    // Category breakdown
     'How many products are in each category?',
-    'What are the top 10 most expensive products by cost price?',
-    'How many active vs inactive products are there?',
-    'Which products have low stock below 10 units?',
+    'Show all product categories and their product count sorted by most products',
     'How many products are in each sub category?',
-    'Show all product categories and their product count',
+    // Top products
+    'What are the top 10 most expensive products by cost price?',
+    'Show the top 20 products with the highest GP margin',
+    'Which products have the lowest cost price?',
+    // Stock
+    'Which products have low stock below 10 units?',
+    'Show all products with zero stock quantity',
+    'What is the total stock value across all product variations?',
+    // Active / inactive
+    'How many active vs inactive products are there?',
+    'How many active products are in each category?',
+    // Variations
+    'How many product variations exist in total?',
+    'Which products have the most variations?',
   ],
   orders: [
+    // Order types and statuses — lookup tables have real data
     'What order types are configured in the system?',
     'What order statuses are available?',
     'How many order types do we have?',
-    'Show all available order statuses',
     'What types of channels are orders placed through?',
+    // Payment methods
+    'What payment methods are available in the system?',
+    'What payment statuses are configured?',
+    // Note: orders table is empty in dev DB — these show config data
+    'Show all available order statuses and their names',
+    'List all configured order types',
   ],
   customers: [
-    'How many customers do we have?',
+    // Counts
+    'How many customers do we have in total?',
+    'How many active customers are there?',
+    // Grouping
     'Show me customers grouped by state',
-    'How many customers have account payment enabled?',
-    'Which customers have an outstanding balance?',
     'Show customers grouped by discount type',
     'How many customer groups exist?',
+    // Account features
+    'How many customers have account payment enabled?',
+    'How many customers have a credit limit set?',
+    // Outstanding balances
+    'Which customers have an outstanding balance greater than zero?',
+    'What is the total outstanding balance across all customers?',
+    // Discounts
+    'How many customers have a discount applied?',
+    'Show customers who have a percentage discount type',
   ],
 };
 
@@ -860,6 +904,8 @@ function selectCategory(cat) {
   const chips = document.getElementById('query-chips');
   chips.innerHTML = '';
   (SAMPLE_QUERIES[cat] || []).forEach(q => {
+    // Skip comment entries (start with //)
+    if (q.startsWith('//')) return;
     const chip = document.createElement('button');
     chip.className = 'query-chip';
     chip.textContent = q;
@@ -1249,6 +1295,7 @@ document.addEventListener('keydown', e => {
   const defaultChips = document.getElementById('query-chips');
   defaultChips.innerHTML = '';
   SAMPLE_QUERIES['sales'].forEach(q => {
+    if (q.startsWith('//')) return;
     const chip = document.createElement('button');
     chip.className = 'query-chip';
     chip.textContent = q;
