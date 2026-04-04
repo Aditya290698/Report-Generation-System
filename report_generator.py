@@ -70,6 +70,9 @@ class ReportOutput:
     chart: ChartConfig       # Chart configuration for the frontend
     row_count: int           # Number of rows returned
     has_data: bool           # False if query returned no results
+    # Raw query results — used to render data table when no chart applies
+    _raw_rows: list = field(default_factory=list)
+    _raw_cols: list = field(default_factory=list)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -540,6 +543,10 @@ Write the business report as JSON following the required format.
         chart=chart,
         row_count=row_count,
         has_data=True,
+        # Always store raw rows — used for data table in PDF and UI
+        # when chart_type is "none" (text/list results)
+        _raw_rows=rows,
+        _raw_cols=columns,
     )
 
 
@@ -879,6 +886,77 @@ def export_report_to_pdf(report: ReportOutput, output_path: str) -> str:
             story.append(Paragraph(para.strip(), body_style))
             story.append(Spacer(1, 8))
     story.append(Spacer(1, 12))
+
+    # ── Data table — shown when there is no chart (list/text results) ─────────
+    # When chart_type is "none" it means the result is a plain list
+    # (e.g. customer names, product names). In this case we render the
+    # raw rows as a clean table so the user can actually see the data.
+    if report.chart.chart_type == "none" and report.row_count > 0:
+        try:
+            # Get columns and rows from the chart config labels/datasets
+            # Fall back gracefully if data isn't available
+            raw_rows  = getattr(report, "_raw_rows",  None)
+            raw_cols  = getattr(report, "_raw_cols",  None)
+
+            if raw_rows and raw_cols:
+                story.append(Paragraph("Data", section_style))
+
+                # Build table data — header + rows (cap at 100 for PDF length)
+                display_rows = raw_rows[:100]
+                header_style = ParagraphStyle(
+                    "TH", parent=styles["Normal"], fontSize=9,
+                    textColor=colors.white, fontName="Helvetica-Bold",
+                )
+                cell_style = ParagraphStyle(
+                    "TD", parent=styles["Normal"], fontSize=9,
+                    textColor=colors.HexColor("#2c2c2c"),
+                )
+
+                col_w = PAGE_W / max(len(raw_cols), 1)
+                col_widths = [col_w] * len(raw_cols)
+
+                tbl_data = []
+                # Header row
+                tbl_data.append([
+                    Paragraph(str(col).replace("_", " ").title(), header_style)
+                    for col in raw_cols
+                ])
+                # Data rows
+                for row in display_rows:
+                    tbl_data.append([
+                        Paragraph(
+                            str(row.get(col, "")) if row.get(col) is not None else "—",
+                            cell_style
+                        )
+                        for col in raw_cols
+                    ])
+
+                data_tbl = Table(tbl_data, colWidths=col_widths, repeatRows=1)
+                data_tbl.setStyle(TableStyle([
+                    # Header
+                    ("BACKGROUND",    (0,0), (-1,0),  colors.HexColor("#185FA5")),
+                    ("TEXTCOLOR",     (0,0), (-1,0),  colors.white),
+                    # Alternating row shading
+                    ("ROWBACKGROUNDS",(0,1), (-1,-1),
+                     [colors.HexColor("#F8FAFC"), colors.white]),
+                    # Borders
+                    ("GRID",          (0,0), (-1,-1), 0.4, colors.HexColor("#DDDDDD")),
+                    ("TOPPADDING",    (0,0), (-1,-1), 5),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+                    ("LEFTPADDING",   (0,0), (-1,-1), 8),
+                    ("RIGHTPADDING",  (0,0), (-1,-1), 8),
+                ]))
+                story.append(data_tbl)
+                if len(raw_rows) > 100:
+                    story.append(Spacer(1, 6))
+                    story.append(Paragraph(
+                        f"Showing 100 of {len(raw_rows)} rows.",
+                        ParagraphStyle("Note", parent=styles["Normal"], fontSize=8,
+                                       textColor=colors.HexColor("#888888"))
+                    ))
+                story.append(Spacer(1, 12))
+        except Exception as e:
+            logger.warning("Could not render data table in PDF: %s", e)
 
     # Footer
     story.append(HRFlowable(width="100%", thickness=0.5,

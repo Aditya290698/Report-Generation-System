@@ -517,6 +517,54 @@
   .narrative-text p:last-child { margin-bottom: 0; }
 
   /* ── Animations ─────────────────────────────────────────────── */
+  /* ── Data table ─────────────────────────────────────────────── */
+  .data-table-card {
+    padding: 28px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+    overflow-x: auto;
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .data-table th {
+    background: var(--accent);
+    color: #fff;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 500;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .data-table td {
+    padding: 9px 14px;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .data-table tr:nth-child(even) td {
+    background: rgba(255,255,255,0.02);
+  }
+
+  .data-table tr:hover td {
+    background: rgba(59,127,255,0.05);
+  }
+
+  .data-table-note {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 10px;
+    text-align: right;
+  }
+
   @keyframes spin { to { transform: rotate(360deg); } }
 
   @keyframes fadeUp {
@@ -779,6 +827,13 @@
 
       <!-- Key insights -->
       <div class="insights-grid" id="insights-grid"></div>
+
+      <!-- Data table — shown for list results when no chart applies -->
+      <div class="data-table-card" id="data-table-card" style="display:none">
+        <div class="section-title">Results</div>
+        <div id="data-table-wrap"></div>
+        <div class="data-table-note" id="data-table-note"></div>
+      </div>
 
       <!-- Chart -->
       <div class="chart-card" id="chart-card" style="display:none">
@@ -1064,7 +1119,14 @@ function renderReport(data) {
     grid.appendChild(card);
   });
 
-  // Chart
+  // Data table — shown when no chart (list/text results)
+  if (data.table_columns && data.table_rows && data.table_rows.length > 0) {
+    renderDataTable(data.table_columns, data.table_rows, data.row_count);
+  } else {
+    document.getElementById('data-table-card').style.display = 'none';
+  }
+
+  // Chart — shown when there is numeric data to visualise
   if (data.chart && data.chart.chart_type !== 'none' && data.chart.labels.length > 0) {
     renderChart(data.chart);
     document.getElementById('chart-card').style.display = 'block';
@@ -1099,6 +1161,48 @@ function renderReport(data) {
   }
 
   document.getElementById('report-output').style.display = 'block';
+}
+
+// ── Data table rendering ───────────────────────────────────────────────────
+function renderDataTable(columns, rows, totalRows) {
+  const card = document.getElementById('data-table-card');
+  const wrap = document.getElementById('data-table-wrap');
+  const note = document.getElementById('data-table-note');
+
+  if (!columns || !rows || rows.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+
+  // Build table HTML
+  let html = '<table class="data-table"><thead><tr>';
+  columns.forEach(col => {
+    const label = col.replace(/_/g, ' ').replace(/\w/g, c => c.toUpperCase());
+    html += `<th>${label}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  rows.forEach(row => {
+    html += '<tr>';
+    columns.forEach(col => {
+      const val = row[col];
+      const display = val === null || val === undefined ? '—' : String(val);
+      html += `<td>${display}</td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+
+  // Show note if results were capped
+  if (totalRows > rows.length) {
+    note.textContent = `Showing ${rows.length} of ${totalRows} rows.`;
+  } else {
+    note.textContent = `${totalRows} result${totalRows !== 1 ? 's' : ''}`;
+  }
+
+  card.style.display = 'block';
 }
 
 // ── Chart rendering ─────────────────────────────────────────────────────────
@@ -1219,6 +1323,8 @@ function resetReport() {
   document.getElementById('pdf-btn').classList.add('hidden');
   document.getElementById('sql-body').classList.remove('open');
   document.getElementById('sql-body').textContent = '';
+  document.getElementById('data-table-card').style.display = 'none';
+  document.getElementById('data-table-wrap').innerHTML = '';
   if (currentChart) { currentChart.destroy(); currentChart = null; }
   currentReportId = null;
 }

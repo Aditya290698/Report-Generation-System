@@ -261,6 +261,10 @@ class ReportResponse(BaseModel):
     has_data:     bool
     generated_at: str           # ISO timestamp
     pdf_url:      str | None    # e.g. "/report/pdf/{report_id}" if exported
+    # Raw table data — populated when chart_type is "none" (list/text results)
+    # UI uses this to render a data table instead of a chart
+    table_columns: list[str] | None = None
+    table_rows:    list[dict] | None = None
 
 
 class HealthResponse(BaseModel):
@@ -323,6 +327,12 @@ def build_response(
         for ds in chart.datasets
     ]
 
+    # Include raw table data when there is no chart
+    # so the UI can render the results as a readable data table
+    is_list_result = chart.chart_type == "none" and report.row_count > 0
+    table_cols = report._raw_cols if is_list_result else None
+    table_rows = report._raw_rows[:100] if is_list_result else None
+
     return ReportResponse(
         report_id=report_id,
         question=report.question,
@@ -343,6 +353,8 @@ def build_response(
         has_data=report.has_data,
         generated_at=datetime.utcnow().isoformat() + "Z",
         pdf_url=pdf_url,
+        table_columns=table_cols,
+        table_rows=table_rows,
     )
 
 
