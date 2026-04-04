@@ -1,10 +1,3 @@
-"""
-sql_generator.py
-----------------
-LLM Pass 1 — Converts natural language questions into safe,
-validated PostgreSQL queries using OpenAI GPT-4o.
-"""
-
 import os
 import re
 import logging

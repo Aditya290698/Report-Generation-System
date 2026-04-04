@@ -128,9 +128,47 @@ def detect_chart_type(
             "No chart needed."
         )
 
+    # ── Check if there is at least one numeric column to chart ───────────────
+    # A chart is only meaningful when there are actual numbers to plot.
+    # For text-only results (e.g. a list of customer names, a list of
+    # order statuses) a chart adds no value — skip it entirely.
+    def is_numeric(val):
+        if val is None:
+            return False
+        try:
+            float(val)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    # Sample up to 5 rows to detect numeric columns
+    sample_rows = rows[:5]
+    # Skip the first column (usually the label/name column)
+    # Check remaining columns for numeric values
+    value_columns = columns[1:] if len(columns) > 1 else []
+    has_numeric = any(
+        is_numeric(row.get(col))
+        for row in sample_rows
+        for col in value_columns
+    )
+
+    # Also check if the ONLY column is text — list queries like
+    # "get me all customer names" have just one text column
+    if col_count == 1:
+        first_vals = [rows[i].get(columns[0]) for i in range(min(3, len(rows)))]
+        if not any(is_numeric(v) for v in first_vals):
+            return "none", (
+                "Result contains only text values — no numeric data to chart. "
+                "Displaying as a plain list."
+            )
+
+    if not has_numeric:
+        return "none", (
+            "No numeric columns found in the result — chart not applicable. "
+            "Displaying as a plain list."
+        )
+
     # ── Identify label column and value column ────────────────────────────────
-    # Heuristic: label column is text, value column is numeric.
-    # First column is usually the label (category/date), rest are values.
     label_col = columns[0] if columns else ""
     label_col_lower = label_col.lower()
 
