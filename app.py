@@ -30,11 +30,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import secrets
 
 from schema_loader    import load_schema, REPORTING_TABLES
 from sql_generator    import generate_sql_with_retry, SQLValidationError
@@ -66,6 +70,54 @@ class AppState:
 
 
 state = AppState()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION 1b — Authentication
+# Simple HTTP Basic Auth. Credentials are read from environment variables
+# so they can be changed without touching code.
+# In production set APP_USERNAME and APP_PASSWORD in Railway variables.
+# ─────────────────────────────────────────────────────────────────────────────
+
+security = HTTPBasic()
+
+def verify_credentials(credentials: HTTPBasicCredentials = None):
+    """
+    Verifies username and password against environment variables.
+    Uses secrets.compare_digest to prevent timing attacks — comparing
+    strings character by character leaks information about how many
+    characters matched. compare_digest always takes the same time.
+
+    Raises:
+        HTTPException 401: If credentials are missing or wrong.
+    """
+    expected_user = os.getenv("APP_USERNAME", "admin")
+    expected_pass = os.getenv("APP_PASSWORD", "pos2024")
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    user_ok = secrets.compare_digest(
+        credentials.username.encode("utf-8"),
+        expected_user.encode("utf-8"),
+    )
+    pass_ok = secrets.compare_digest(
+        credentials.password.encode("utf-8"),
+        expected_pass.encode("utf-8"),
+    )
+
+    if not (user_ok and pass_ok):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password.",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    return credentials.username
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -295,7 +347,11 @@ def build_response(
     summary="Generate a report from a natural language question",
     tags=["Reporting"],
 )
-async def create_report(request: ReportRequest):
+async def create_report(
+    request: ReportRequest,
+    credentials: HTTPBasicCredentials = Depends(security),
+):
+    verify_credentials(credentials)
     """
     The main endpoint. Full pipeline:
 
@@ -408,7 +464,12 @@ async def create_report(request: ReportRequest):
     tags=["Reporting"],
     response_class=FileResponse,
 )
-async def download_pdf(report_id: str, background_tasks: BackgroundTasks):
+async def download_pdf(
+    report_id: str,
+    background_tasks: BackgroundTasks,
+    credentials: HTTPBasicCredentials = Depends(security),
+):
+    verify_credentials(credentials)
     """
     Downloads the PDF for a previously generated report.
 
@@ -541,14 +602,33 @@ async def list_tables():
     }
 
 
+# ── POST /login ──────────────────────────────────────────────────────────────
+@app.post("/login", summary="Verify credentials", tags=["Auth"])
+async def login(credentials: HTTPBasicCredentials = Depends(security)):
+    """
+    Verifies username and password. Returns user info on success.
+    The web UI calls this on the login form submit to confirm credentials
+    before showing the main dashboard.
+    """
+    username = verify_credentials(credentials)
+    return {
+        "status":   "authenticated",
+        "username": username,
+        "message":  "Login successful.",
+    }
+
+
 # ── GET / ─────────────────────────────────────────────────────────────────────
 @app.get("/", tags=["System"], include_in_schema=False)
 async def root():
-    """Root redirect — points to the API docs."""
+    """Serve the web UI."""
+    index_path = Path("index.html")
+    if index_path.exists():
+        return FileResponse("index.html", media_type="text/html")
     return {
         "message": "POS LLM Reporting API",
-        "docs":    "http://localhost:8000/docs",
-        "health":  "http://localhost:8000/health",
+        "docs":    "/docs",
+        "health":  "/health",
     }
 
 
