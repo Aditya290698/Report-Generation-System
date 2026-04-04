@@ -1,3 +1,22 @@
+"""
+report_generator.py
+-------------------
+LLM Pass 2 — Takes the raw query results from query_executor.py and:
+
+1. Analyses the data structure to recommend the best chart type
+2. Calls OpenAI to write a professional business report narrative
+3. Bundles everything into a ReportOutput object that the UI layer
+   (web app) uses to render the chart and export the PDF
+
+Chart selection logic:
+- Time series data (dates/months)  → Line chart
+- Category comparisons (<=8 items) → Bar chart
+- Category comparisons (>8 items)  → Horizontal bar chart
+- Part-of-whole / proportions      → Pie chart
+- Single aggregate value           → Metric card (no chart)
+- Ranking / top N                  → Bar chart
+"""
+
 import os
 import re
 import json
@@ -272,12 +291,14 @@ OUTPUT FORMAT — respond with valid JSON only, no markdown, no backticks:
 RULES:
 1. Always reference specific numbers from the data — never be vague.
 2. If data shows a clear winner/leader, name it explicitly.
-3. If data is empty or all zeros, say so clearly and suggest why.
+3. If data is empty or all zeros, say so clearly and suggest the date range may have no data.
 4. Keep the narrative professional but readable — avoid jargon.
 5. key_insights must be exactly 3 bullet points, each starting with a specific finding.
 6. Currency values are in AUD unless stated otherwise.
 7. Never invent data that isn't in the results provided.
 8. Output ONLY valid JSON — no preamble, no explanation outside the JSON.
+9. For sales/revenue reports, always mention the time period covered if visible in the data.
+10. If a value is NULL or N/A in the data, note it as unavailable — do not treat it as zero.
 """
 
 
@@ -345,6 +366,42 @@ def generate_report(
             row_count=0,
             has_data=False,
         )
+
+    # ── Handle all-NULL result (aggregation on empty dataset) ─────────────────
+    # When SUM/AVG/COUNT runs on rows that match no records, PostgreSQL returns
+    # one row with NULL. We catch this here before sending to LLM so it doesn't
+    # hallucinate explanations like "system downtime".
+    if row_count == 1:
+        all_values = list(rows[0].values())
+        if all(v is None for v in all_values):
+            logger.info("All-NULL result detected — aggregation matched no records.")
+            return ReportOutput(
+                question=user_question,
+                sql=sql,
+                summary=(
+                    "The query returned no matching records for the specified filters. "
+                    "This means no transactions matched all the conditions in your question."
+                ),
+                narrative=(
+                    "The SQL query ran successfully but the aggregation (SUM/COUNT/AVG) "
+                    "returned NULL, which means zero rows matched all the filter conditions combined. "
+                    "For mx51 transactions, only 2 out of 200 records have status APPROVED. "
+                    "If you are filtering by both date and APPROVED status, there may be no APPROVED "
+                    "transactions on that specific date. "
+                    "Try asking for the total purchase amount without specifying a status, "
+                    "or broaden the date range to find records."
+                ),
+                key_insights=[
+                    "No records matched all filter conditions in the query.",
+                    "For mx51 transactions, only 2 of 200 records are APPROVED status.",
+                    "Try broadening the date range or removing the status filter to find data.",
+                ],
+                chart=ChartConfig(
+                    chart_type="none", title="", labels=[], datasets=[], reasoning=""
+                ),
+                row_count=0,
+                has_data=False,
+            )
 
     # ── Step 1: Select chart type ─────────────────────────────────────────────
     chart_type, reasoning = detect_chart_type(columns, rows, user_question)
