@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POS Intelligence — Report System</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #0b0f1a;
+    --surface:   #111827;
+    --card:      #1a2236;
+    --border:    rgba(255,255,255,0.07);
+    --accent:    #3b7fff;
+    --accent2:   #00c896;
+    --text:      #e8eaf0;
+    --muted:     #6b7a99;
+    --danger:    #ff5c6a;
+    --serif:     'DM Serif Display', Georgia, serif;
+    --sans:      'DM Sans', system-ui, sans-serif;
+    --radius:    12px;
+    --shadow:    0 8px 32px rgba(0,0,0,0.4);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* ── Login page ─────────────────────────────────────────────── */
+  #login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(59,127,255,0.18) 0%, transparent 70%),
+      var(--bg);
+  }
+
+  .login-box {
+    width: 100%;
+    max-width: 400px;
+    padding: 48px 40px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .login-logo {
+    font-family: var(--serif);
+    font-size: 28px;
+    color: var(--text);
+    margin-bottom: 6px;
+    letter-spacing: -0.5px;
+  }
+
+  .login-logo span { color: var(--accent); }
+
+  .login-sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 36px;
+  }
+
+  .field {
+    margin-bottom: 16px;
+  }
+
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .field input {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .field input:focus {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    width: 100%;
+    padding: 13px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: opacity 0.2s, transform 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .btn-primary:hover { opacity: 0.88; }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .login-error {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: rgba(255,92,106,0.1);
+    border: 1px solid rgba(255,92,106,0.3);
+    border-radius: 8px;
+    color: var(--danger);
+    font-size: 13px;
+    display: none;
+  }
+
+  /* ── Main app ───────────────────────────────────────────────── */
+  #app-page { display: none; min-height: 100vh; }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 32px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .topbar-brand {
+    font-family: var(--serif);
+    font-size: 20px;
+    letter-spacing: -0.3px;
+  }
+
+  .topbar-brand span { color: var(--accent); }
+
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .user-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .user-dot {
+    width: 7px;
+    height: 7px;
+    background: var(--accent2);
+    border-radius: 50%;
+  }
+
+  .btn-logout {
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-logout:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 24px;
+  }
+
+  /* ── Ask section ────────────────────────────────────────────── */
+  .ask-heading {
+    font-family: var(--serif);
+    font-size: 36px;
+    font-weight: 400;
+    letter-spacing: -1px;
+    margin-bottom: 8px;
+    line-height: 1.2;
+  }
+
+  .ask-heading em {
+    color: var(--accent);
+    font-style: italic;
+  }
+
+  .ask-sub {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 28px;
+  }
+
+  .ask-box {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .ask-input {
+    flex: 1;
+    padding: 16px 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .ask-input:focus { border-color: var(--accent); }
+  .ask-input::placeholder { color: var(--muted); }
+
+  .ask-btn {
+    padding: 16px 28px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .ask-btn:hover { opacity: 0.88; }
+  .ask-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Suggestions ────────────────────────────────────────────── */
+  .suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 40px;
+  }
+
+  .suggestion-chip {
+    padding: 7px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .suggestion-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* ── Loading ────────────────────────────────────────────────── */
+  #loading {
+    display: none;
+    text-align: center;
+    padding: 64px 0;
+  }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+
+  .loading-steps {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .loading-step {
+    padding: 4px 0;
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+
+  .loading-step.active {
+    opacity: 1;
+    color: var(--accent2);
+  }
+
+  .loading-step.done {
+    opacity: 0.5;
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+
+  /* ── Error ──────────────────────────────────────────────────── */
+  #error-box {
+    display: none;
+    padding: 16px 20px;
+    background: rgba(255,92,106,0.08);
+    border: 1px solid rgba(255,92,106,0.25);
+    border-radius: var(--radius);
+    color: var(--danger);
+    margin-bottom: 24px;
+    font-size: 14px;
+  }
+
+  /* ── Report output ──────────────────────────────────────────── */
+  #report-output { display: none; animation: fadeUp 0.5s ease both; }
+
+  .report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    gap: 16px;
+  }
+
+  .report-question {
+    font-family: var(--serif);
+    font-size: 26px;
+    font-weight: 400;
+    letter-spacing: -0.5px;
+    line-height: 1.3;
+  }
+
+  .pdf-btn {
+    padding: 10px 20px;
+    background: transparent;
+    border: 1px solid var(--accent2);
+    color: var(--accent2);
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+  }
+
+  .pdf-btn:hover {
+    background: rgba(0,200,150,0.1);
+  }
+
+  .pdf-btn.hidden { display: none; }
+
+  /* ── Metric cards ───────────────────────────────────────────── */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .metric-card {
+    padding: 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .metric-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    margin-bottom: 8px;
+  }
+
+  .metric-value {
+    font-family: var(--serif);
+    font-size: 28px;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .metric-value.accent { color: var(--accent); }
+
+  /* ── Summary card ───────────────────────────────────────────── */
+  .summary-card {
+    padding: 24px 28px;
+    background: linear-gradient(135deg, rgba(59,127,255,0.08), rgba(0,200,150,0.05));
+    border: 1px solid rgba(59,127,255,0.2);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+
+  .summary-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+
+  /* ── Insights ───────────────────────────────────────────────── */
+  .insights-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+
+  .insight-card {
+    padding: 18px 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent2);
+    border-radius: var(--radius);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+
+  /* ── Chart ──────────────────────────────────────────────────── */
+  .chart-card {
+    padding: 28px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+  }
+
+  .chart-title {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 400;
+    margin-bottom: 6px;
+  }
+
+  .chart-subtitle {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 24px;
+  }
+
+  .chart-wrap {
+    position: relative;
+    width: 100%;
+  }
+
+  /* ── Narrative ──────────────────────────────────────────────── */
+  .narrative-card {
+    padding: 28px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+  }
+
+  .section-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+
+  .narrative-text {
+    font-size: 14px;
+    line-height: 1.8;
+    color: #b0b8cc;
+  }
+
+  .narrative-text p { margin-bottom: 14px; }
+  .narrative-text p:last-child { margin-bottom: 0; }
+
+  /* ── Animations ─────────────────────────────────────────────── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Responsive ─────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .metrics-row, .insights-grid { grid-template-columns: 1fr; }
+    .ask-box { flex-direction: column; }
+    .topbar { padding: 12px 16px; }
+    .main { padding: 24px 16px; }
+    .ask-heading { font-size: 26px; }
+    .report-header { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN PAGE ──────────────────────────────────────────────────────────── -->
+<div id="login-page">
+  <div class="login-box">
+    <div class="login-logo">POS<span>.</span>Intelligence</div>
+    <div class="login-sub">Sign in to access your reporting dashboard</div>
+
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="username" placeholder="Enter username" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="password" placeholder="Enter password" autocomplete="current-password">
+    </div>
+
+    <button class="btn-primary" id="login-btn" onclick="handleLogin()">
+      <span id="login-btn-text">Sign in</span>
+    </button>
+
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- ── MAIN APP ────────────────────────────────────────────────────────────── -->
+<div id="app-page">
+
+  <div class="topbar">
+    <div class="topbar-brand">POS<span>.</span>Intelligence</div>
+    <div class="topbar-right">
+      <div class="user-pill">
+        <div class="user-dot"></div>
+        <span id="username-display">user</span>
+      </div>
+      <button class="btn-logout" onclick="handleLogout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- Ask section -->
+    <div class="ask-heading">Ask anything about<br>your <em>sales data.</em></div>
+    <div class="ask-sub">Type a question in plain English — the system generates SQL, runs it, and writes the report.</div>
+
+    <div class="ask-box">
+      <input
+        class="ask-input"
+        type="text"
+        id="question-input"
+        placeholder="e.g. How many products are in each category?"
+        onkeydown="if(event.key==='Enter') runReport()"
+      >
+      <button class="ask-btn" id="ask-btn" onclick="runReport()">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        Generate
+      </button>
+    </div>
+
+    <div class="suggestions">
+      <div class="suggestion-chip" onclick="ask('How many products are in each category?')">Products by category</div>
+      <div class="suggestion-chip" onclick="ask('What is the total revenue from all mx51 transactions?')">Total mx51 revenue</div>
+      <div class="suggestion-chip" onclick="ask('How many customers have account payment enabled?')">Account customers</div>
+      <div class="suggestion-chip" onclick="ask('Show monthly revenue from mx51 transactions')">Monthly revenue</div>
+      <div class="suggestion-chip" onclick="ask('What are the top 10 most expensive products by cost price?')">Top expensive products</div>
+      <div class="suggestion-chip" onclick="ask('How many completed Square checkout transactions are there?')">Square checkouts</div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading">
+      <div class="spinner"></div>
+      <div class="loading-steps">
+        <div class="loading-step" id="step-1">Generating SQL query...</div>
+        <div class="loading-step" id="step-2">Executing against database...</div>
+        <div class="loading-step" id="step-3">Writing report with AI...</div>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div id="error-box"></div>
+
+    <!-- Report output -->
+    <div id="report-output">
+
+      <div class="report-header">
+        <div class="report-question" id="report-title"></div>
+        <a class="pdf-btn hidden" id="pdf-btn" href="#" target="_blank">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15V3M6 9l6 6 6-6M3 17v2a2 2 0 002 2h14a2 2 0 002-2v-2"/></svg>
+          Download PDF
+        </a>
+      </div>
+
+      <!-- Metric cards -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-label">Rows returned</div>
+          <div class="metric-value accent" id="metric-rows">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Chart type</div>
+          <div class="metric-value" id="metric-chart" style="font-size:18px;padding-top:6px">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Data available</div>
+          <div class="metric-value" id="metric-data" style="font-size:18px;padding-top:6px">—</div>
+        </div>
+      </div>
+
+      <!-- Executive summary -->
+      <div class="summary-card">
+        <div class="summary-label">Executive Summary</div>
+        <div id="report-summary"></div>
+      </div>
+
+      <!-- Key insights -->
+      <div class="insights-grid" id="insights-grid"></div>
+
+      <!-- Chart -->
+      <div class="chart-card" id="chart-card" style="display:none">
+        <div class="chart-title" id="chart-title"></div>
+        <div class="chart-subtitle" id="chart-subtitle"></div>
+        <div class="chart-wrap">
+          <canvas id="report-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Narrative -->
+      <div class="narrative-card">
+        <div class="section-title">Detailed Analysis</div>
+        <div class="narrative-text" id="report-narrative"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Config ─────────────────────────────────────────────────────────────────
+const API = 'https://web-production-a461.up.railway.app';
+let authHeader = '';
+let currentChart = null;
+let currentReportId = null;
+
+// ── Auth helpers ────────────────────────────────────────────────────────────
+function makeBasicAuth(user, pass) {
+  return 'Basic ' + btoa(user + ':' + pass);
+}
+
+function saveSession(user, pass) {
+  sessionStorage.setItem('pos_auth', btoa(user + ':' + pass));
+  sessionStorage.setItem('pos_user', user);
+}
+
+function loadSession() {
+  const stored = sessionStorage.getItem('pos_auth');
+  const user   = sessionStorage.getItem('pos_user');
+  if (stored) {
+    authHeader = 'Basic ' + stored;
+    return user;
+  }
+  return null;
+}
+
+function clearSession() {
+  sessionStorage.removeItem('pos_auth');
+  sessionStorage.removeItem('pos_user');
+  authHeader = '';
+}
+
+// ── Page switching ──────────────────────────────────────────────────────────
+function showApp(username) {
+  document.getElementById('login-page').style.display = 'none';
+  document.getElementById('app-page').style.display   = 'block';
+  document.getElementById('username-display').textContent = username;
+}
+
+function showLogin() {
+  document.getElementById('login-page').style.display = 'flex';
+  document.getElementById('app-page').style.display   = 'none';
+}
+
+// ── Login ───────────────────────────────────────────────────────────────────
+async function handleLogin() {
+  const user = document.getElementById('username').value.trim();
+  const pass = document.getElementById('password').value;
+  const btn  = document.getElementById('login-btn');
+  const err  = document.getElementById('login-error');
+
+  if (!user || !pass) {
+    showLoginError('Please enter your username and password.');
+    return;
+  }
+
+  btn.disabled = true;
+  document.getElementById('login-btn-text').textContent = 'Signing in...';
+  err.style.display = 'none';
+
+  try {
+    const res = await fetch(`${API}/login`, {
+      method:  'POST',
+      headers: { 'Authorization': makeBasicAuth(user, pass) },
+    });
+
+    if (res.ok) {
+      authHeader = makeBasicAuth(user, pass);
+      saveSession(user, pass);
+      showApp(user);
+    } else if (res.status === 401) {
+      showLoginError('Invalid username or password. Please try again.');
+    } else {
+      showLoginError('Server error. Please try again shortly.');
+    }
+  } catch (e) {
+    showLoginError('Could not connect to the server. Check your connection.');
+  } finally {
+    btn.disabled = false;
+    document.getElementById('login-btn-text').textContent = 'Sign in';
+  }
+}
+
+function showLoginError(msg) {
+  const err = document.getElementById('login-error');
+  err.textContent = msg;
+  err.style.display = 'block';
+}
+
+// ── Logout ──────────────────────────────────────────────────────────────────
+function handleLogout() {
+  clearSession();
+  showLogin();
+  resetReport();
+  document.getElementById('username').value = '';
+  document.getElementById('password').value = '';
+}
+
+// ── Suggestion chips ────────────────────────────────────────────────────────
+function ask(question) {
+  document.getElementById('question-input').value = question;
+  runReport();
+}
+
+// ── Report loading steps animation ─────────────────────────────────────────
+let stepTimer = null;
+function startLoadingSteps() {
+  ['step-1','step-2','step-3'].forEach(id => {
+    document.getElementById(id).className = 'loading-step';
+  });
+  let step = 0;
+  const steps = ['step-1','step-2','step-3'];
+  const delays = [0, 2200, 4500];
+
+  delays.forEach((delay, i) => {
+    setTimeout(() => {
+      if (i > 0) document.getElementById(steps[i-1]).className = 'loading-step done';
+      document.getElementById(steps[i]).className = 'loading-step active';
+    }, delay);
+  });
+}
+
+// ── Run report ──────────────────────────────────────────────────────────────
+async function runReport() {
+  const question = document.getElementById('question-input').value.trim();
+  if (!question) return;
+
+  resetReport();
+
+  document.getElementById('loading').style.display    = 'block';
+  document.getElementById('report-output').style.display = 'none';
+  document.getElementById('error-box').style.display  = 'none';
+  document.getElementById('ask-btn').disabled         = true;
+  startLoadingSteps();
+
+  try {
+    const res = await fetch(`${API}/report`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': authHeader,
+      },
+      body: JSON.stringify({ question, export_pdf: true }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      showError(data.detail?.detail || data.detail || 'Something went wrong.');
+      return;
+    }
+
+    currentReportId = data.report_id;
+    renderReport(data);
+
+  } catch (e) {
+    showError('Could not connect to the API. Please try again.');
+  } finally {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('ask-btn').disabled      = false;
+  }
+}
+
+// ── Render report ───────────────────────────────────────────────────────────
+function renderReport(data) {
+  // Title
+  document.getElementById('report-title').textContent = data.question;
+
+  // Metric cards
+  document.getElementById('metric-rows').textContent  = data.row_count;
+  document.getElementById('metric-chart').textContent = formatChartType(data.chart.chart_type);
+  document.getElementById('metric-data').textContent  = data.has_data ? 'Yes' : 'No data';
+
+  // Summary
+  document.getElementById('report-summary').textContent = data.summary;
+
+  // Key insights
+  const grid = document.getElementById('insights-grid');
+  grid.innerHTML = '';
+  (data.key_insights || []).forEach(insight => {
+    if (!insight) return;
+    const card = document.createElement('div');
+    card.className = 'insight-card';
+    card.textContent = insight;
+    grid.appendChild(card);
+  });
+
+  // Chart
+  if (data.chart && data.chart.chart_type !== 'none' && data.chart.labels.length > 0) {
+    renderChart(data.chart);
+    document.getElementById('chart-card').style.display = 'block';
+  }
+
+  // Narrative
+  const narrativeEl = document.getElementById('report-narrative');
+  narrativeEl.innerHTML = '';
+  (data.narrative || '').split('\n\n').forEach(para => {
+    if (para.trim()) {
+      const p = document.createElement('p');
+      p.textContent = para.trim();
+      narrativeEl.appendChild(p);
+    }
+  });
+
+  // PDF button
+  if (data.pdf_url) {
+    const pdfBtn = document.getElementById('pdf-btn');
+    pdfBtn.href = `${API}${data.pdf_url}`;
+    // Attach auth header via fetch for download
+    pdfBtn.onclick = (e) => {
+      e.preventDefault();
+      downloadPdf(`${API}${data.pdf_url}`, `report_${data.report_id.slice(0,8)}.pdf`);
+    };
+    pdfBtn.classList.remove('hidden');
+  }
+
+  document.getElementById('report-output').style.display = 'block';
+}
+
+// ── Chart rendering ─────────────────────────────────────────────────────────
+function renderChart(chartData) {
+  const canvas = document.getElementById('report-chart');
+
+  if (currentChart) {
+    currentChart.destroy();
+    currentChart = null;
+  }
+
+  document.getElementById('chart-title').textContent    = chartData.title;
+  document.getElementById('chart-subtitle').textContent = chartData.reasoning;
+
+  // Map our chart types to Chart.js types
+  const typeMap = {
+    'bar':           'bar',
+    'horizontalBar': 'bar',
+    'line':          'line',
+    'pie':           'pie',
+  };
+  const chartType = typeMap[chartData.chart_type] || 'bar';
+  const isHorizontal = chartData.chart_type === 'horizontalBar';
+
+  // Determine canvas height based on data size
+  if (isHorizontal) {
+    canvas.style.height = Math.max(300, Math.min(chartData.labels.length * 28, 700)) + 'px';
+  } else if (chartType === 'pie') {
+    canvas.style.height = '380px';
+  } else {
+    canvas.style.height = '320px';
+  }
+
+  const datasets = chartData.datasets.map(ds => ({
+    ...ds,
+    borderRadius: chartType === 'bar' ? 4 : 0,
+  }));
+
+  const config = {
+    type: chartType,
+    data: { labels: chartData.labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: isHorizontal ? 'y' : 'x',
+      plugins: {
+        legend: {
+          display: chartType === 'pie' || datasets.length > 1,
+          labels: {
+            color: '#6b7a99',
+            font: { family: 'DM Sans', size: 12 },
+            padding: 16,
+          },
+        },
+        tooltip: {
+          backgroundColor: '#1a2236',
+          borderColor: 'rgba(255,255,255,0.07)',
+          borderWidth: 1,
+          titleColor: '#e8eaf0',
+          bodyColor: '#6b7a99',
+          padding: 12,
+        },
+      },
+      scales: chartType !== 'pie' ? {
+        x: {
+          grid:  { color: 'rgba(255,255,255,0.04)' },
+          ticks: {
+            color: '#6b7a99',
+            font: { family: 'DM Sans', size: 11 },
+            maxRotation: isHorizontal ? 0 : 40,
+            maxTicksLimit: isHorizontal ? undefined : 12,
+          },
+        },
+        y: {
+          grid:  { color: 'rgba(255,255,255,0.04)' },
+          ticks: {
+            color: '#6b7a99',
+            font: { family: 'DM Sans', size: 11 },
+          },
+        },
+      } : {},
+    },
+  };
+
+  currentChart = new Chart(canvas, config);
+}
+
+// ── PDF download with auth ──────────────────────────────────────────────────
+async function downloadPdf(url, filename) {
+  try {
+    const res = await fetch(url, {
+      headers: { 'Authorization': authHeader },
+    });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    alert('PDF download failed. Please try again.');
+  }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function showError(msg) {
+  const box = document.getElementById('error-box');
+  box.textContent = msg;
+  box.style.display = 'block';
+}
+
+function resetReport() {
+  document.getElementById('report-output').style.display = 'none';
+  document.getElementById('error-box').style.display     = 'none';
+  document.getElementById('chart-card').style.display    = 'none';
+  document.getElementById('insights-grid').innerHTML     = '';
+  document.getElementById('pdf-btn').classList.add('hidden');
+  if (currentChart) { currentChart.destroy(); currentChart = null; }
+  currentReportId = null;
+}
+
+function formatChartType(type) {
+  const map = {
+    'bar':           'Bar chart',
+    'horizontalBar': 'Horiz. bar',
+    'line':          'Line chart',
+    'pie':           'Pie chart',
+    'none':          'Metric card',
+  };
+  return map[type] || type;
+}
+
+// ── Keyboard shortcut ───────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.activeElement.id === 'password') {
+    handleLogin();
+  }
+});
+
+// ── Init — check for existing session ──────────────────────────────────────
+(function init() {
+  const user = loadSession();
+  if (user) {
+    showApp(user);
+  } else {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>
