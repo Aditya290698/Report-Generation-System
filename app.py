@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
@@ -185,6 +186,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Custom validation error handler ──────────────────────────────────────────
+# Replaces FastAPI's default Pydantic error response with a clear message.
+# Without this, a 422 returns a technical JSON blob the UI can't display nicely.
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
+    # Extract the first meaningful error message
+    if errors:
+        loc   = " → ".join(str(l) for l in errors[0].get("loc", []) if l != "body")
+        msg   = errors[0].get("msg", "Invalid request")
+        detail = f"{loc}: {msg}" if loc else msg
+    else:
+        detail = "Invalid request body."
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error":  "validation_error",
+            "detail": detail,
+            "code":   "INVALID_REQUEST",
+        },
+    )
+
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Read allowed origins from environment variable so we can lock it down
 # in production without changing code.
@@ -215,7 +239,7 @@ class ReportRequest(BaseModel):
     """Body of POST /report"""
     question: str = Field(
         ...,
-        min_length=5,
+        min_length=2,
         max_length=500,
         description="Natural language question about your POS data.",
         examples=["How many products are in each category?",
@@ -419,32 +443,65 @@ async def create_report(
             },
         )
 
-    # ── Execute SQL ───────────────────────────────────────────────────────────
-    try:
-        query_result = execute_query(state.conn, sql)
-        logger.info("[%s] Query returned %d rows.", report_id,
-                    query_result["row_count"])
-    except EmptyResultError as e:
-        # Not a server error — the query worked, there's just no data
-        logger.info("[%s] Query returned no results: %s", report_id, e)
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "no_data",
-                "detail": str(e),
-                "code": "NO_DATA",
-            },
-        )
-    except QueryExecutionError as e:
-        logger.error("[%s] Query execution failed: %s", report_id, e)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "query_execution_failed",
-                "detail": str(e),
-                "code": "DB_ERROR",
-            },
-        )
+    # ── Execute SQL (with DB-error retry) ────────────────────────────────────
+    # If PostgreSQL rejects the query (e.g. wrong column name), we feed
+    # the exact DB error back into the SQL generator for one more attempt.
+    query_result = None
+    for exec_attempt in range(1, 3):   # Up to 2 execution attempts
+        try:
+            query_result = execute_query(state.conn, sql)
+            logger.info("[%s] Query returned %d rows.", report_id,
+                        query_result["row_count"])
+            break   # Success — exit retry loop
+
+        except EmptyResultError as e:
+            # Query ran correctly — table is just empty. Not an error.
+            logger.info("[%s] Query returned no results: %s", report_id, e)
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "no_data",
+                    "detail": str(e),
+                    "code": "NO_DATA",
+                },
+            )
+
+        except QueryExecutionError as e:
+            db_error_msg = str(e)
+            logger.warning(
+                "[%s] DB execution error on attempt %d: %s",
+                report_id, exec_attempt, db_error_msg
+            )
+            if exec_attempt < 2:
+                # Feed the DB error back into the SQL generator for a fix
+                logger.info("[%s] Retrying SQL generation with DB error context...", report_id)
+                try:
+                    from sql_generator import generate_sql
+                    sql = generate_sql(
+                        request.question,
+                        state.schema,
+                        previous_error=db_error_msg,
+                    )
+                    logger.info("[%s] Regenerated SQL after DB error: %s", report_id, sql[:100])
+                except Exception as regen_err:
+                    logger.error("[%s] SQL regeneration failed: %s", report_id, regen_err)
+                    raise HTTPException(
+                        status_code=500,
+                        detail={
+                            "error": "query_execution_failed",
+                            "detail": db_error_msg,
+                            "code": "DB_ERROR",
+                        },
+                    )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "query_execution_failed",
+                        "detail": db_error_msg,
+                        "code": "DB_ERROR",
+                    },
+                )
 
     # ── Pass 2: Generate report ───────────────────────────────────────────────
     try:

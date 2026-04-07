@@ -1,10 +1,3 @@
-"""
-schema_loader.py
-----------------
-Connects to PostgreSQL and builds the schema context string
-that gets injected into the LLM prompt.
-"""
-
 import os
 import logging
 import psycopg2
@@ -72,66 +65,94 @@ REPORTING_TABLES = [
 
 TABLE_DESCRIPTIONS = {
     "orders": (
-        "Master table for all customer orders. "
-        "Revenue column: totalAmountWithTax. Date column: orderedDate. "
-        "Filter: isReopened = false. NOTE: Empty in dev database."
+        "Master order table — 0 rows in dev database, will have data in production. "
+        "ALWAYS generate SQL for orders questions — the query will run and return 0 with a clear message. "
+        "Revenue column: totalAmountWithTax (use for all revenue/sales figures). "
+        "Date column: orderedDate (timestamp with time zone, UTC). "
+        "Filter completed orders: WHERE isReopened = false. "
+        "Key columns: id, orderNumber, receiptNumber, customerName, customerId, "
+        "orderTypeId, orderStatusId, totalAmountWithTax, totalAmountWithoutTax, "
+        "totalTaxAmount, totalDiscountAmountWithTax, discountPercentage, "
+        "itemsSubtotal, totalDeliveryAmountWithTax, orderedDate, isReopened, storeId."
     ),
     "order_items": (
-        "Line items within each order. One row per product sold. "
-        "Columns: quantity, unitPrice, totalPrice, discountWithTax, isCancelled, isRefunded. "
-        "Join to orders via orderId, to products via productId. "
-        "NOTE: Empty in dev database."
+        "Line items within each order — 0 rows in dev, will have data in production. "
+        "ALWAYS generate SQL for order_items questions. "
+        "One row per product sold. Use for top-selling products and category sales. "
+        "Key columns: id, orderId, productId, productVariationId, description, "
+        "quantity, paidQuantity, unitPrice, totalPrice, discountWithTax, "
+        "discountPercentage, totalTax, isCancelled, isRefunded, refundedQuantity, "
+        "promotionDiscountWithTax, manualDiscountWithTax, comboDealName, createdAt. "
+        "Filter active items: WHERE isCancelled = false AND isRefunded = false. "
+        "Join to orders via orderId, to products via productId."
     ),
     "order_payments": (
-        "Payment records per order. Columns: paidAmount, tipAmount, surchargeAmount, paymentMethodId. "
-        "One order can have multiple rows (split payments). NOTE: Empty in dev database."
+        "Payment records per order — 0 rows in dev, will have data in production. "
+        "ALWAYS generate SQL for payment questions. "
+        "One order can have multiple payment rows (split payments). "
+        "Key columns: id, orderId, paymentMethodId, paymentStatusId, paidAmount, "
+        "tipAmount, surchargeAmount, changeReturn, splitType, paymentDate, "
+        "giftCardCode, storeId. "
+        "Join to payment_methods via paymentMethodId."
     ),
     "order_statuses": (
-        "Lookup: order status names (Completed, Cancelled, Refunded etc). "
-        "Join to orders via orders.orderStatusId = order_statuses.id."
+        "Lookup table — order status names. 4 rows. Has real data. "
+        "Columns: id, name. "
+        "Common values: Completed, Cancelled, Refunded, Open (use ILIKE for matching). "
+        "Join to orders: orders.orderStatusId = order_statuses.id."
     ),
     "order_types": (
-        "Lookup: order type names (Dine In, Takeaway, Delivery etc). "
-        "Join to orders via orders.orderTypeId = order_types.id."
+        "Lookup table — order type names. 22 rows. Has real data. "
+        "Columns: id, name. "
+        "Common values: Dine In, Takeaway, Delivery, Drive Thru. "
+        "Join to orders: orders.orderTypeId = order_types.id."
     ),
     "products": (
-        "Master product catalogue. 1950+ rows. "
-        "Columns: name, code, productCategoryId, isActive, currentStock, costPrice. "
-        "Join to order_items via productId."
+        "Master product catalogue. 1950+ rows. Has real data. "
+        "Key columns: id, name, code, productCategoryId, productSubCategoryId, "
+        "isActive, currentStock, currentCostPerUnit, minimumStockAlert, "
+        "isStockedItem, sellByWeight, colorCode, createdAt. "
+        "Join to order_items via productId. "
+        "Join to product_categories via productCategoryId."
     ),
     "product_variations": (
-        "Variants of a product (Small, Medium, Large etc). 5787 rows. "
-        "Columns: name, costPrice, gpMargin, stockQuantity, productId. "
+        "Product variants — Small, Medium, Large etc. 5787 rows. Has real data. "
+        "Key columns: id, name, code, productId, costPrice, gpMargin, "
+        "stockQuantity, isActive, isDefault, barCodeNumber, createdAt. "
         "Join to products via productId."
     ),
     "product_categories": (
-        "Product category names. 123 rows. "
-        "Join to products via products.productCategoryId = product_categories.id."
+        "Product category names. 123 rows. Has real data. "
+        "Columns: id, name, isActive, sortOrder, description, colorCode. "
+        "Join to products: products.productCategoryId = product_categories.id."
     ),
     "customers": (
-        "Registered customers. 42 rows. "
-        "Columns: name, email, phone, state, discountType, discountValue, "
-        "totalOutstanding, maxCreditLimit, enableAccountPayment, isActive."
+        "Registered customer records. 42 rows. Has real data. "
+        "Key columns: id, name, email, phone, streetAddress, suburb, state, "
+        "postCode, isActive, customerGroupId, discountType, discountValue, "
+        "totalOutstanding, maxOrderLimit, maxCreditLimit, "
+        "enableAccountPayment, followGroupSettings, createdAt."
     ),
     "payment_methods": (
-        "Lookup: payment method names (Cash, Card, Gift Card etc). 9 rows. "
-        "Join to order_payments via order_payments.paymentMethodId = payment_methods.id."
+        "Lookup — payment method names. 9 rows. Has real data. "
+        "Columns: id, name. "
+        "Join to order_payments: order_payments.paymentMethodId = payment_methods.id."
     ),
     "mx51_transactions": (
-        "EFTPOS/card terminal transactions. 200 rows. PRIMARY sales source. "
-        "Key columns: purchaseAmount, finalAmount (use for revenue), tipAmount, "
-        "surchargeAmount, refundAmount, resultFinancialStatus, finalisedAt. "
-        "resultFinancialStatus values are UPPERCASE: APPROVED, CANCELLED, DECLINED. "
-        "Always use UPPER(mx51.resultFinancialStatus) = 'APPROVED' for successful sales. "
-        "finalisedAt is timestamp with time zone stored in UTC. "
-        "Use range filter: finalisedAt >= 'date 00:00:00+00' AND finalisedAt < 'next_date 00:00:00+00'"
+        "EFTPOS/card terminal transactions. 200 rows. PRIMARY sales source with real data. "
+        "Key columns: id, purchaseAmount, finalAmount (revenue = finalAmount), "
+        "tipAmount, surchargeAmount, refundAmount, resultFinancialStatus, "
+        "finalisedAt (UTC timestamp), status, storeId, posDeviceId. "
+        "resultFinancialStatus is UPPERCASE: APPROVED, CANCELLED, DECLINED. "
+        "Always filter: WHERE UPPER(resultFinancialStatus) = 'APPROVED' for successful sales. "
+        "Date filter: finalisedAt >= 'date 00:00:00+00' AND finalisedAt < 'next_date 00:00:00+00'."
     ),
     "square_checkouts": (
-        "Square POS terminal checkouts. 2119 rows. SECONDARY sales source. "
-        "Key columns: amount (AUD), status, createdAt. "
-        "status values: COMPLETED, CANCELED (uppercase). "
-        "Always filter: UPPER(sc.status) = 'COMPLETED'. "
-        "createdAt is timestamp with time zone stored in UTC."
+        "Square POS terminal checkouts. 2119 rows. SECONDARY sales source with real data. "
+        "Key columns: id, amount (revenue = amount in AUD), currency, status, "
+        "checkoutId, orderId, storeId, paymentId, orderNumber, createdAt (UTC timestamp). "
+        "status is UPPERCASE: COMPLETED, CANCELED. "
+        "Always filter: WHERE UPPER(status) = 'COMPLETED' for successful checkouts."
     ),
 }
 
