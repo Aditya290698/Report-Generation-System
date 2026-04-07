@@ -472,6 +472,27 @@ A: SELECT o."orderNumber", o."customerName",
    WHERE os."name" ILIKE '%cancel%'
    ORDER BY o."orderedDate" DESC
    LIMIT 100
+
+Q: What order statuses are available? / List all order statuses / Show me the order statuses
+A: SELECT os."id", os."name" AS order_status
+   FROM order_statuses os
+   ORDER BY os."name"
+
+Q: Get me order statuses of each order with order id / Show order status for each order
+A: SELECT o."id" AS order_id, o."orderNumber",
+          os."name" AS order_status,
+          o."orderedDate"
+   FROM orders o
+   JOIN order_statuses os ON o."orderStatusId" = os."id"
+   ORDER BY o."orderedDate" DESC
+   LIMIT 100
+
+NOTE on order_statuses vs orders join:
+- If user asks "what statuses exist" / "list statuses" / "available statuses"
+  → query order_statuses directly (no join to orders needed)
+- If user asks "status of each order" / "order status per order" / "order id with status"
+  → join orders to order_statuses (orders is empty in dev, will return 0 rows)
+- Always make the distinction based on whether user wants the lookup list or per-order data
 """
 
 

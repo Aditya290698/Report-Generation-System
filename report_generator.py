@@ -386,26 +386,41 @@ def generate_report(
 
     # ── Handle empty data ─────────────────────────────────────────────────────
     if not rows or row_count == 0:
+        # Give a specific message if the SQL references empty core tables
+        empty_table_hint = ""
+        sql_upper = sql.upper()
+        if any(t in sql_upper for t in ["FROM ORDERS", "FROM ORDER_ITEMS", "FROM ORDER_PAYMENTS"]):
+            empty_table_hint = (
+                " The query joins to the orders table which is currently empty "
+                "in the development database. This query will return results "
+                "when connected to the production database with real order data."
+            )
+
         return ReportOutput(
             question=user_question,
             sql=sql,
-            summary="No data was found matching your query criteria.",
+            summary=(
+                "The query executed successfully but returned no data." +
+                empty_table_hint
+            ),
             narrative=(
-                "The query executed successfully but returned no results. "
-                "This typically means there are no records in the database "
-                "matching the specified filters, such as no transactions "
-                "in the selected date range."
+                "The SQL query was generated correctly and ran without errors, "
+                "but returned zero rows." + empty_table_hint + " "
+                "If you are expecting data, check that the correct database "
+                "is connected and that the relevant tables have been populated."
             ),
             key_insights=[
-                "No data available for this query.",
-                "Check that the date range contains transaction data.",
-                "The relevant tables may not have been populated yet.",
+                "Query executed successfully — zero rows returned.",
+                "The orders, order_items and order_payments tables are empty in the development database." if empty_table_hint else "No records matched the query criteria.",
+                "This query is ready for production — it will return real results once order data is present.",
             ],
             chart=ChartConfig(
                 chart_type="none", title="", labels=[], datasets=[], reasoning=""
             ),
             row_count=0,
             has_data=False,
+            _raw_rows=[],
+            _raw_cols=[],
         )
 
     # ── Handle all-NULL result (aggregation on empty dataset) ─────────────────

@@ -455,16 +455,16 @@ async def create_report(
             break   # Success — exit retry loop
 
         except EmptyResultError as e:
-            # Query ran correctly — table is just empty. Not an error.
-            logger.info("[%s] Query returned no results: %s", report_id, e)
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error": "no_data",
-                    "detail": str(e),
-                    "code": "NO_DATA",
-                },
-            )
+            # Query ran correctly but returned 0 rows.
+            # Do NOT return 404 — instead build a proper report with
+            # has_data=False so the UI shows a friendly empty-state message.
+            logger.info("[%s] Query returned 0 rows — building empty report.", report_id)
+            query_result = {
+                "columns":   [],
+                "rows":      [],
+                "row_count": 0,
+            }
+            break
 
         except QueryExecutionError as e:
             db_error_msg = str(e)
