@@ -1,3 +1,10 @@
+"""
+schema_loader.py
+----------------
+Connects to PostgreSQL and builds the schema context string
+that gets injected into the LLM prompt.
+"""
+
 import os
 import logging
 import psycopg2
@@ -212,12 +219,40 @@ def fetch_table_relationships(conn) -> list[dict]:
         raise
 
 
+# ─────────────────────────────────────────────────────────────────────────────────
+# SECTION 3b — Live row counts
+# ─────────────────────────────────────────────────────────────────────────────────
+
+def fetch_row_counts(conn, table_names):
+    query = """
+        SELECT relname AS table_name, n_live_tup AS row_count
+        FROM pg_stat_user_tables
+        WHERE schemaname = 'public'
+          AND relname = ANY(%s);
+    """
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(query, (list(table_names),))
+            rows = cursor.fetchall()
+        counts = {row["table_name"]: int(row["row_count"]) for row in rows}
+        for t in table_names:
+            counts.setdefault(t, 0)
+        logger.info("Row counts: %s", counts)
+        return counts
+    except psycopg2.Error as e:
+        logger.warning("Row count fetch failed (%s) -- defaulting to 0.", e)
+        return {t: 0 for t in table_names}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 4 — Build schema context
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_schema_context(conn) -> str:
     logger.info("Building schema context for %d tables...", len(REPORTING_TABLES))
+
+    # Fetch live row counts so the LLM knows which tables have data
+    row_counts = fetch_row_counts(conn, REPORTING_TABLES)
 
     lines = []
     lines.append("=== DATABASE SCHEMA ===")
@@ -226,13 +261,28 @@ def build_schema_context(conn) -> str:
         "Use ONLY the tables and columns listed below.\n"
     )
 
+    # Tables are marked [EMPTY] or [X rows] so the LLM knows what has data.
+    # IMPORTANT: Even EMPTY tables must have SQL generated for them —
+    # the query will run and return 0 rows with a clear message to the user.
+    # Never refuse to generate SQL just because a table is empty.
+    lines.append("TABLE ROW COUNTS (live from database):")
+    for table_name in REPORTING_TABLES:
+        count = row_counts.get(table_name, 0)
+        status = "EMPTY — 0 rows" if count == 0 else f"{count:,} rows"
+        lines.append(f"  {table_name}: {status}")
+    lines.append("")
+
     for table_name in REPORTING_TABLES:
         columns = fetch_table_schema(conn, table_name)
         if not columns:
             logger.warning("Skipping '%s' — no columns found.", table_name)
             continue
 
-        lines.append(f"TABLE: {table_name}")
+        count = row_counts.get(table_name, 0)
+        row_status = "EMPTY — 0 rows in this database" if count == 0 else f"{count:,} rows"
+
+        # Table header clearly shows row count
+        lines.append(f"TABLE: {table_name}  [{row_status}]")
         desc = TABLE_DESCRIPTIONS.get(table_name, "No description.")
         lines.append(f"Description: {desc}")
         lines.append("Columns:")
