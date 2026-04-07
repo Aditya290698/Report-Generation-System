@@ -1,10 +1,3 @@
-"""
-schema_loader.py
-----------------
-Connects to PostgreSQL and builds the schema context string
-that gets injected into the LLM prompt.
-"""
-
 import os
 import logging
 import psycopg2
@@ -156,10 +149,15 @@ TABLE_DESCRIPTIONS = {
     ),
     "square_checkouts": (
         "Square POS terminal checkouts. 2119 rows. SECONDARY sales source with real data. "
-        "Key columns: id, amount (revenue = amount in AUD), currency, status, "
-        "checkoutId, orderId, storeId, paymentId, orderNumber, createdAt (UTC timestamp). "
-        "status is UPPERCASE: COMPLETED, CANCELED. "
-        "Always filter: WHERE UPPER(status) = 'COMPLETED' for successful checkouts."
+        "Full columns: id (uuid), storeId (uuid), orderId (uuid nullable), "
+        "checkoutId (varchar), amount (numeric — USE FOR REVENUE in AUD), "
+        "currency (varchar, always AUD), status (varchar UPPERCASE: COMPLETED/CANCELED), "
+        "paymentId (varchar nullable), referenceId (varchar nullable), "
+        "orderNumber (varchar nullable), updatedAt (no timezone — do not filter), "
+        "createdAt (timestamp with timezone UTC — USE FOR DATE FILTERING). "
+        "Always filter successful: WHERE UPPER(status) = 'COMPLETED'. "
+        "Use storeId to group by store. "
+        "Date filter: createdAt >= 'date 00:00:00+00' AND createdAt < 'next_date 00:00:00+00'."
     ),
 }
 
@@ -332,6 +330,18 @@ def build_schema_context(conn) -> str:
     lines.append("   Always use: col >= 'YYYY-MM-DD 00:00:00+00' AND col < 'YYYY-MM-DD+1 00:00:00+00'")
     lines.append("8. mx51 status filter: UPPER(mx51.\"resultFinancialStatus\") = 'APPROVED'")
     lines.append("9. square status filter: UPPER(sc.\"status\") = 'COMPLETED'")
+    lines.append("")
+    lines.append("=== EMPTY TABLE STRATEGY ===")
+    lines.append("Check TABLE ROW COUNTS above before writing any query.")
+    lines.append("PRIORITY 1 — Prefer tables with data.")
+    lines.append("  If the question can be answered using tables with rows > 0, use those.")
+    lines.append("  Example: 'order statuses list' -> query order_statuses (4 rows), no join to orders needed.")
+    lines.append("  Example: 'total revenue' -> use mx51_transactions (has data), not orders (0 rows).")
+    lines.append("  Example: 'payment methods' -> query payment_methods (9 rows) directly.")
+    lines.append("PRIORITY 2 — If empty table is specifically required, generate SQL with a comment.")
+    lines.append("  Add: -- NOTE: this table is empty in dev, query will return 0 rows")
+    lines.append("  The system shows the user a helpful message about zero results.")
+    lines.append("PRIORITY 3 — Use CANNOT_GENERATE only if truly no table can answer the question.")
 
     schema = "\n".join(lines)
     logger.info("Schema context built (%d characters).", len(schema))

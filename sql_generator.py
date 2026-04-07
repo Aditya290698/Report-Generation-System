@@ -1,18 +1,3 @@
-"""
-sql_generator.py
-----------------
-LLM Pass 1 — Converts natural language questions into safe,
-validated PostgreSQL queries using OpenAI GPT-4o.
-
-Changes v2:
-- 3 retry attempts (was 2)
-- Error message from previous attempt fed back into context on retry
-- Full table metadata for orders, order_items, order_payments,
-  order_statuses, square_checkouts added as rich examples
-- 20+ few-shot examples covering all common query patterns
-- Empty tables now generate SQL (returns zero rows, not an error)
-"""
-
 import os
 import re
 import logging
@@ -61,6 +46,47 @@ ABSOLUTE RULES — never break these
    mx51=mx51_transactions, sc=square_checkouts.
 6. Format all currency/decimal values with ROUND(..., 2).
 7. If a question cannot be answered from the schema: CANNOT_GENERATE: <reason>
+
+═══════════════════════════════════════════════════════════════
+TABLE ASSESSMENT — do this before writing any SQL
+═══════════════════════════════════════════════════════════════
+Before writing any query, assess the metadata in the schema context:
+
+STEP 1 — Read the TABLE ROW COUNTS section in the schema.
+  Identify which tables have rows > 0 (have real data).
+  Identify which tables are EMPTY (0 rows).
+
+STEP 2 — Map the user's question to relevant tables.
+  Ask: which tables contain the columns needed to answer this question?
+  Consider ALL tables, not just the obvious ones.
+
+STEP 3 — Choose the best table(s):
+  PREFER tables with data over empty tables.
+  If the same information exists in both an empty table and a table with data,
+  ALWAYS use the table with data.
+
+  Current data availability:
+  HAS DATA (use these):   mx51_transactions, square_checkouts, products,
+                          product_variations, product_categories, customers,
+                          order_statuses, order_types, payment_methods
+  EMPTY in dev database:  orders, order_items, order_payments
+
+STEP 4 — If a question SEEMS to need an empty table, ask:
+  "Can I answer this from a table that HAS data instead?"
+  
+  Common substitutions:
+  Question about          Use instead of orders        Use this table
+  ─────────────────────── ─────────────────────────── ─────────────────────
+  total sales/revenue     orders.totalAmountWithTax   mx51_transactions.finalAmount
+  number of transactions  COUNT(orders)               COUNT(mx51_transactions) or square_checkouts
+  average order value     AVG(orders.totalAmount)     AVG(mx51_transactions.finalAmount)
+  daily/weekly/monthly    orders.orderedDate          mx51_transactions.finalisedAt
+  payment method used     order_payments              mx51_transactions (has storeId, amounts)
+  store breakdown         orders.storeId              square_checkouts.storeId (2119 rows)
+
+STEP 5 — If the question specifically and only makes sense with an empty table
+  (e.g. "show me order numbers with their items") then generate the SQL anyway.
+  The system handles 0 rows gracefully with a helpful message.
 
 ═══════════════════════════════════════════════════════════════
 LIMIT RULES
@@ -225,26 +251,36 @@ Common status names (use ILIKE not exact match):
 SQUARE_CHECKOUTS TABLE — full column reference
 ═══════════════════════════════════════════════════════════════
 Table: square_checkouts (alias: sc) — 2119 rows of real data. SECONDARY sales source.
+Use this table for all Square POS terminal transaction queries.
 
-Key columns:
-  "id"          — unique checkout identifier
-  "storeId"     — which store
-  "orderId"     — links to orders (currently empty)
-  "checkoutId"  — Square's checkout reference
-  "amount"      — transaction amount in AUD (USE THIS FOR REVENUE)
-  "currency"    — always AUD
-  "status"      — 'COMPLETED' or 'CANCELED' (stored uppercase)
-  "paymentId"   — Square payment reference
-  "orderNumber" — order number reference
-  "createdAt"   — when checkout was created (USE FOR DATE FILTERING, UTC)
+ALL columns (exact list from database):
+  "id"          — unique checkout identifier (uuid)
+  "storeId"     — which store processed this checkout (uuid)
+  "orderId"     — links to orders table, nullable (uuid)
+  "checkoutId"  — Square internal reference (varchar)
+  "orderNumber" — order number if linked (varchar, nullable)
+  "amount"      — transaction amount in AUD — USE FOR REVENUE (numeric)
+  "currency"    — always 'AUD' (varchar)
+  "status"      — 'COMPLETED' or 'CANCELED' in UPPERCASE (varchar)
+  "paymentId"   — Square payment reference (varchar, nullable)
+  "referenceId" — external reference ID (varchar, nullable)
+  "updatedAt"   — last updated (timestamp WITHOUT timezone — DO NOT filter on this)
+  "createdAt"   — when checkout was created — USE FOR DATE FILTERING (timestamp WITH timezone, UTC)
 
-Always filter completed only: WHERE UPPER(sc."status") = 'COMPLETED'
+Key rules for square_checkouts:
+  Always filter successful: WHERE UPPER(sc."status") = 'COMPLETED'
+  Always use "createdAt" for date filtering (UTC range filter)
+  Revenue = "amount" column (already in AUD)
+  Status values are UPPERCASE: 'COMPLETED', 'CANCELED'
 
-Business terminology for square_checkouts:
-  "Square sales" / "Square revenue"  → SUM(sc."amount") WHERE UPPER(sc."status") = 'COMPLETED'
-  "Square transactions"              → COUNT(*) WHERE UPPER(sc."status") = 'COMPLETED'
-  "cancelled Square checkouts"       → WHERE UPPER(sc."status") = 'CANCELED'
-  "average Square transaction"       → AVG(sc."amount") WHERE UPPER(sc."status") = 'COMPLETED'
+Business terminology:
+  "Square sales" / "Square revenue"   → SUM(sc."amount") WHERE UPPER(sc."status") = 'COMPLETED'
+  "Square transactions" / "checkouts" → COUNT(*) WHERE UPPER(sc."status") = 'COMPLETED'
+  "cancelled Square"                  → WHERE UPPER(sc."status") = 'CANCELED'
+  "average Square value"              → AVG(sc."amount") WHERE UPPER(sc."status") = 'COMPLETED'
+  "Square stores"                     → COUNT(DISTINCT sc."storeId")
+  "Square revenue by store"           → GROUP BY sc."storeId"
+  "Square checkouts today"            → createdAt >= CURRENT_DATE::timestamptz AND createdAt < (CURRENT_DATE+1)::timestamptz
 
 ═══════════════════════════════════════════════════════════════
 MX51_TRANSACTIONS TABLE — full column reference
@@ -273,18 +309,53 @@ Business terminology:
   "transaction count"→ COUNT(*)
 
 ═══════════════════════════════════════════════════════════════
-IMPORTANT — EMPTY TABLE BEHAVIOUR
+EMPTY TABLE DECISION RULES — follow in order
 ═══════════════════════════════════════════════════════════════
-orders, order_items, and order_payments are EMPTY in this database (0 rows).
-HOWEVER: ALWAYS generate the correct SQL anyway.
-- The query will run successfully and return 0 rows or NULL aggregates
-- The system will tell the user "no data found" after running the query
-- DO NOT refuse or use CANNOT_GENERATE just because a table is empty
-- DO NOT substitute mx51 or square for orders questions — write the correct orders SQL
-  The client may be testing the SQL structure for when production data is connected.
+The schema context tells you which tables are EMPTY (0 rows) and which have data.
+Follow this decision tree for every question:
 
-Exception: If the user EXPLICITLY asks for "current sales data" or "actual revenue now",
-then you may note that orders is empty and suggest mx51_transactions instead.
+STEP 1 — Can the question be answered using ONLY tables that have data?
+  If YES → use only the tables with data. Do NOT touch empty tables at all.
+  If NO  → go to Step 2.
+
+STEP 2 — Does the question specifically require an empty table (orders, order_items, order_payments)?
+  If YES → generate the correct SQL using that table. Add a SQL comment: -- NOTE: table is empty in dev database
+            The query will return 0 rows. The system handles this gracefully.
+  If NO  → go to Step 3.
+
+STEP 3 — Is there a reasonable substitute using tables with real data?
+  If YES → use the substitute and note it clearly in a SQL comment.
+            Example substitutes:
+            - "order revenue" / "sales" → use mx51_transactions.finalAmount or square_checkouts.amount
+            - "number of transactions" → use COUNT(*) FROM mx51_transactions
+            - "payment methods used" → use payment_methods table (has 9 rows)
+  If NO  → use CANNOT_GENERATE: <reason>
+
+EXAMPLES of Step 1 (answer without empty tables):
+  Q: "What order statuses are available?"
+     → order_statuses has 4 rows — query it directly, no join to orders needed
+  Q: "What order types exist?"
+     → order_types has 22 rows — query it directly
+  Q: "What payment methods are available?"
+     → payment_methods has 9 rows — query it directly
+  Q: "Show me all products"
+     → products has 1950 rows — no empty tables needed
+
+EXAMPLES of Step 2 (question needs empty table — generate SQL anyway):
+  Q: "Show order id and status for each order"
+     → requires joining orders to order_statuses — generate it with comment
+  Q: "Top selling products by order items"
+     → requires order_items — generate it with comment
+  Q: "Revenue by payment method from order payments"
+     → requires order_payments — generate it with comment
+
+EXAMPLES of Step 3 (substitute with real data):
+  Q: "What is the total sales revenue?"
+     → orders is empty, substitute: use mx51_transactions.finalAmount
+  Q: "How many transactions today?"
+     → orders is empty, substitute: use mx51_transactions or square_checkouts
+  Q: "Average transaction value?"
+     → orders is empty, substitute: AVG(mx51."finalAmount") FROM mx51_transactions
 
 ═══════════════════════════════════════════════════════════════
 FEW-SHOT EXAMPLES — learn these patterns
@@ -440,6 +511,126 @@ A: SELECT 'mx51' AS source,
    FROM square_checkouts sc
    WHERE UPPER(sc."status") = 'COMPLETED'
 
+Q: How many Square checkouts are there? / Total Square transactions / Square checkout count
+A: SELECT COUNT(*) AS total_checkouts,
+          COUNT(CASE WHEN UPPER(sc."status") = 'COMPLETED' THEN 1 END) AS completed,
+          COUNT(CASE WHEN UPPER(sc."status") = 'CANCELED' THEN 1 END) AS cancelled
+   FROM square_checkouts sc
+
+Q: What is the total revenue from Square checkouts?
+A: SELECT ROUND(SUM(sc."amount"), 2) AS total_revenue,
+          COUNT(*) AS transaction_count
+   FROM square_checkouts sc
+   WHERE UPPER(sc."status") = 'COMPLETED'
+
+Q: Show Square checkout revenue by day / daily Square revenue
+A: SELECT DATE(sc."createdAt" AT TIME ZONE 'UTC') AS sale_date,
+          COUNT(*) AS transaction_count,
+          ROUND(SUM(sc."amount"), 2) AS daily_revenue
+   FROM square_checkouts sc
+   WHERE UPPER(sc."status") = 'COMPLETED'
+   GROUP BY DATE(sc."createdAt" AT TIME ZONE 'UTC')
+   ORDER BY sale_date DESC
+
+Q: What is the average Square checkout amount?
+A: SELECT ROUND(AVG(sc."amount"), 2) AS average_checkout_amount,
+          COUNT(*) AS total_transactions
+   FROM square_checkouts sc
+   WHERE UPPER(sc."status") = 'COMPLETED'
+
+Q: Show Square checkouts for a specific date / Square transactions on 18th Feb 2026
+A: SELECT sc."checkoutId", sc."amount", sc."status",
+          sc."orderNumber", sc."createdAt"
+   FROM square_checkouts sc
+   WHERE sc."createdAt" >= '2026-02-18 00:00:00+00'
+     AND sc."createdAt" <  '2026-02-19 00:00:00+00'
+   ORDER BY sc."createdAt" DESC
+   LIMIT 100
+
+Q: How many distinct stores are in Square checkouts? / How many stores use Square?
+A: SELECT COUNT(DISTINCT sc."storeId") AS store_count
+   FROM square_checkouts sc
+
+Q: Show Square checkout revenue by store
+A: SELECT sc."storeId",
+          COUNT(*) AS transaction_count,
+          ROUND(SUM(sc."amount"), 2) AS total_revenue
+   FROM square_checkouts sc
+   WHERE UPPER(sc."status") = 'COMPLETED'
+   GROUP BY sc."storeId"
+   ORDER BY total_revenue DESC
+
+Q: Show all Square checkouts / list Square checkouts
+A: SELECT sc."id", sc."checkoutId", sc."orderNumber",
+          sc."amount", sc."currency", sc."status",
+          sc."createdAt"
+   FROM square_checkouts sc
+   ORDER BY sc."createdAt" DESC
+   LIMIT 100
+
+Q: Show completed Square checkouts with order numbers
+A: SELECT sc."orderNumber", sc."checkoutId",
+          sc."amount", sc."currency",
+          sc."createdAt"
+   FROM square_checkouts sc
+   WHERE UPPER(sc."status") = 'COMPLETED'
+     AND sc."orderNumber" IS NOT NULL
+   ORDER BY sc."createdAt" DESC
+   LIMIT 100
+
+Q: How many Square checkouts per status / Square checkout status breakdown
+A: SELECT sc."status",
+          COUNT(*) AS checkout_count,
+          ROUND(SUM(sc."amount"), 2) AS total_amount
+   FROM square_checkouts sc
+   GROUP BY sc."status"
+   ORDER BY checkout_count DESC
+
+Q: Show Square checkouts for a date range / Square revenue between two dates
+A: SELECT DATE(sc."createdAt" AT TIME ZONE 'UTC') AS checkout_date,
+          COUNT(*) AS checkout_count,
+          ROUND(SUM(sc."amount"), 2) AS daily_revenue
+   FROM square_checkouts sc
+   WHERE UPPER(sc."status") = 'COMPLETED'
+     AND sc."createdAt" >= '2026-01-01 00:00:00+00'
+     AND sc."createdAt" <  '2026-04-01 00:00:00+00'
+   GROUP BY DATE(sc."createdAt" AT TIME ZONE 'UTC')
+   ORDER BY checkout_date
+
+Q: Show Square checkouts linked to an order / Square checkouts with order id
+A: SELECT sc."id", sc."orderId", sc."orderNumber",
+          sc."checkoutId", sc."amount", sc."status",
+          sc."createdAt"
+   FROM square_checkouts sc
+   WHERE sc."orderId" IS NOT NULL
+   ORDER BY sc."createdAt" DESC
+   LIMIT 100
+
+Q: What is the total Square revenue this month?
+A: SELECT ROUND(SUM(sc."amount"), 2) AS total_revenue,
+          COUNT(*) AS transaction_count
+   FROM square_checkouts sc
+   WHERE UPPER(sc."status") = 'COMPLETED'
+     AND sc."createdAt" >= DATE_TRUNC('month', NOW())
+
+Q: Show Square checkouts by currency
+A: SELECT sc."currency",
+          COUNT(*) AS checkout_count,
+          ROUND(SUM(sc."amount"), 2) AS total_amount
+   FROM square_checkouts sc
+   WHERE UPPER(sc."status") = 'COMPLETED'
+   GROUP BY sc."currency"
+   ORDER BY total_amount DESC
+
+Q: Find a Square checkout by payment id / checkout id
+A: SELECT sc."id", sc."checkoutId", sc."paymentId",
+          sc."orderNumber", sc."amount", sc."status",
+          sc."createdAt"
+   FROM square_checkouts sc
+   WHERE sc."paymentId" IS NOT NULL
+   ORDER BY sc."createdAt" DESC
+   LIMIT 100
+
 Q: How many customers do we have by state?
 A: SELECT c."state", COUNT(c."id") AS customer_count
    FROM customers c
@@ -493,6 +684,18 @@ NOTE on order_statuses vs orders join:
 - If user asks "status of each order" / "order status per order" / "order id with status"
   → join orders to order_statuses (orders is empty in dev, will return 0 rows)
 - Always make the distinction based on whether user wants the lookup list or per-order data
+
+NOTE on stores — storeId is available but stores table is NOT in the schema:
+- Many tables have a "storeId" UUID column referencing the stores table
+- The stores table itself is not in the reporting schema
+- If user asks "how many stores", "number of stores", "stores breakdown":
+  → COUNT(DISTINCT "storeId") from a table that has data
+  → Prefer square_checkouts or mx51_transactions as they have real storeId values
+  → Example: SELECT COUNT(DISTINCT sc."storeId") AS number_of_stores FROM square_checkouts sc
+  → Example: SELECT sc."storeId", COUNT(*) AS checkouts, ROUND(SUM(sc."amount"),2) AS revenue
+             FROM square_checkouts sc WHERE UPPER(sc."status") = 'COMPLETED'
+             GROUP BY sc."storeId" ORDER BY revenue DESC
+  → NEVER return NULL for a stores count — always use COUNT(DISTINCT storeId)
 """
 
 
